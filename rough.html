@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Seed Collection Field Data (Google Sheets Sync)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Mobile-first styling */
+        :root {
+            --primary-blue: #1d4ed8;
+            --secondary-green: #059669;
+            --danger-red: #dc2626;
+            --text-color: #1f2937;
+            --background-color: #f3f4f6;
+            --card-background: #ffffff;
+            --border-color: #d1d5db;
+            --success-color: #065f46;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            margin: auto;
+        }
+
+        .card {
+            background-color: var(--card-background);
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        input, select, button {
+            transition: all 0.2s;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 0.75rem;
+            margin-top: 0.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+        }
+
+        .primary-btn {
+            background-color: var(--primary-blue);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .primary-btn:hover:not(:disabled) {
+            background-color: #1e40af;
+        }
+        .primary-btn:disabled {
+            background-color: #93c5fd;
+            cursor: not-allowed;
+        }
+
+        /* Status colors */
+        .status-online {
+            background-color: #d1fae5;
+            color: var(--success-color);
+            border: 1px solid #a7f3d0;
+        }
+        .status-offline {
+            background-color: #fee2e2;
+            color: var(--danger-red);
+            border: 1px solid #fecaca;
+        }
+        .status-syncing {
+            background-color: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+        .error-message {
+            color: var(--danger-red);
+            font-size: 0.875rem;
+            margin-top: -0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .sync-icon {
+            animation: spin 1.5s linear infinite;
+        }
+        .loader {
+            border: 4px solid #f3f3f3; 
+            border-top: 4px solid var(--primary-blue); 
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-3xl font-bold text-center mb-6">Seed Collection Field Data</h1>
+
+        <!-- Status & User Info -->
+        <div class="card p-3 flex justify-between items-center mb-4">
+            <div id="status-indicator" class="px-3 py-1 text-sm font-medium rounded-full status-offline">
+                Offline (Sync Required)
+            </div>
+            <!-- Unique ID for Local Storage (since we don't have Firebase UID) -->
+            <div class="text-xs text-gray-500 truncate" title="Unique device ID for local storage">
+                Device ID: <span id="user-id">Loading...</span>
+            </div>
+        </div>
+        
+        <!-- Google Apps Script URL Configuration (Hidden but important) -->
+        <div class="mb-4 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-sm text-yellow-800">
+            <p class="font-bold mb-1">SETUP REQUIRED:</p>
+            <p>You MUST replace the <code>APPS_SCRIPT_URL_PLACEHOLDER</code> in the JavaScript with your deployed Google Apps Script URL for cloud sync to work.</p>
+        </div>
+
+
+        <!-- Data Entry Form -->
+        <div class="card">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">New Seed Collection Record</h2>
+            <form id="data-form" class="space-y-3">
+                
+                <!-- Date Taken (Automatic) -->
+                <div>
+                    <label for="date-collected" class="block text-sm font-medium text-gray-700">Date Collected</label>
+                    <input type="date" id="date-collected" class="input-field" readonly required>
+                </div>
+
+                <!-- Range Dropdown -->
+                <div>
+                    <label for="input-range" class="block text-sm font-medium text-gray-700">Range</label>
+                    <select id="input-range" class="input-field" required>
+                        <option value="" disabled selected>Select Range</option>
+                        <option value="Range_A">Range A</option>
+                        <option value="Range_B">Range B</option>
+                        <option value="Range_C">Range C</option>
+                        <option value="Range_D">Range D</option>
+                    </select>
+                </div>
+                
+                <!-- Village Input -->
+                <div>
+                    <label for="input-village" class="block text-sm font-medium text-gray-700">Village</label>
+                    <input type="text" id="input-village" placeholder="Enter Village Name" class="input-field" required>
+                </div>
+                
+                <!-- Species Dropdown -->
+                <div>
+                    <label for="input-species" class="block text-sm font-medium text-gray-700">Species</label>
+                    <select id="input-species" class="input-field" required>
+                        <option value="" disabled selected>Select Species</option>
+                        <option value="Albizia_lebbeck">Albizia lebbeck</option>
+                        <option value="Azadirachta_indica">Azadirachta indica</option>
+                        <option value="Tectona_grandis">Tectona grandis</option>
+                        <option value="Dalbergia_sissoo">Dalbergia sissoo</option>
+                    </select>
+                </div>
+                
+                <!-- Amount of Seed Collected in kg -->
+                <div>
+                    <label for="input-seed-kg" class="block text-sm font-medium text-gray-700">Amount of Seed Collected (kg)</label>
+                    <input type="number" step="0.01" min="0" id="input-seed-kg" placeholder="e.g., 5.75" class="input-field" required>
+                </div>
+                
+                <!-- CPT No. -->
+                <div>
+                    <label for="input-cpt" class="block text-sm font-medium text-gray-700">CPT No.</label>
+                    <input type="text" id="input-cpt" placeholder="Enter CPT Number" class="input-field" required>
+                </div>
+
+                <!-- GPS Location Button/Display -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">GPS Location</label>
+                    <button type="button" id="get-gps-btn" class="primary-btn w-full mb-2 flex items-center justify-center">
+                        <span id="gps-btn-text">Get Current GPS Location</span>
+                        <div id="gps-loader" class="loader ml-3 hidden"></div>
+                    </button>
+                    <input type="text" id="input-gps" placeholder="Lat: -, Lon: -" class="input-field text-center font-mono bg-gray-50" readonly required>
+                    <p id="gps-error" class="error-message hidden"></p>
+                </div>
+
+                <button type="submit" id="save-btn" class="primary-btn w-full mt-4">Save Record Locally</button>
+            </form>
+        </div>
+
+        <!-- Data Sync and List -->
+        <div class="card mt-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Submitted Records</h2>
+            <button id="sync-button" class="primary-btn w-full mb-4 flex items-center justify-center">
+                <svg id="sync-icon-svg" class="h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0012 4a8.001 8.001 0 00-7.01 10.957M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2l-.001-.002m0 0a8.003 8.003 0 0115.357 2l.001.002z"/>
+                </svg>
+                Sync 0 Records to Google Sheets
+            </button>
+            <div id="data-list" class="space-y-3">
+                <p class="text-center text-gray-500" id="loading-message">Loading local records...</p>
+            </div>
+        </div>
+        
+        <!-- Custom Modal for Alerts/Confirmation -->
+        <div id="custom-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center p-4 z-50">
+            <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm">
+                <h3 id="modal-title" class="text-lg font-bold mb-2 text-gray-800"></h3>
+                <p id="modal-message" class="mb-4 text-gray-600"></p>
+                <div id="modal-actions" class="flex justify-end space-x-3">
+                    <!-- Buttons will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        // !!! IMPORTANT: REPLACE THIS PLACEHOLDER WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL !!!
+        const APPS_SCRIPT_URL = "APPS_SCRIPT_URL_PLACEHOLDER"; 
+        const STORAGE_KEY = 'seedCollectionData_v2';
+        const PENDING_SYNC_KEY = 'pendingSyncData_v2';
+        const DEVICE_ID_KEY = 'deviceId';
+        
+        // --- DOM References ---
+        const form = document.getElementById('data-form');
+        const dataList = document.getElementById('data-list');
+        const statusIndicator = document.getElementById('status-indicator');
+        const userIdSpan = document.getElementById('user-id');
+        const loadingMessage = document.getElementById('loading-message');
+        const dateInput = document.getElementById('date-collected');
+        const gpsInput = document.getElementById('input-gps');
+        const getGpsBtn = document.getElementById('get-gps-btn');
+        const gpsError = document.getElementById('gps-error');
+        const syncButton = document.getElementById('sync-button');
+        const syncIconSvg = document.getElementById('sync-icon-svg');
+        const saveButton = document.getElementById('save-btn');
+        const gpsBtnText = document.getElementById('gps-btn-text');
+        const gpsLoader = document.getElementById('gps-loader');
+
+        let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+        if (!deviceId) {
+            deviceId = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            localStorage.setItem(DEVICE_ID_KEY, deviceId);
+        }
+        userIdSpan.textContent = deviceId;
+
+
+        // --- Utility Functions ---
+
+        /**
+         * Shows a custom modal dialog for alerts or confirmations.
+         */
+        function showModal(title, message, actions = [{label: 'Close', className: 'primary-btn', onClick: () => closeModal()}]) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            const modalActions = document.getElementById('modal-actions');
+            modalActions.innerHTML = ''; // Clear previous buttons
+            
+            actions.forEach(action => {
+                const button = document.createElement('button');
+                // Use Tailwind classes for consistent styling
+                const baseClass = 'px-4 py-2 rounded-lg font-medium';
+                let btnClass = baseClass;
+                
+                if (action.className === 'primary-btn') {
+                    btnClass += ' bg-blue-600 text-white hover:bg-blue-700';
+                } else if (action.className === 'bg-gray-200 text-gray-700 hover:bg-gray-300') {
+                    btnClass += ' bg-gray-200 text-gray-700 hover:bg-gray-300';
+                } else if (action.className.includes('bg-red-')) {
+                    btnClass += ' bg-red-600 text-white hover:bg-red-700';
+                } else if (action.className === 'status-syncing text-yellow-800') {
+                    btnClass += ' bg-yellow-100 text-yellow-800 cursor-default';
+                }
+
+                button.textContent = action.label;
+                button.className = btnClass;
+                button.onclick = () => {
+                    action.onClick();
+                    // Do not auto-close if action explicitly requests it to stay open (e.g., for loading)
+                    if (action.autoClose !== false) {
+                        closeModal(); 
+                    }
+                };
+                modalActions.appendChild(button);
+            });
+
+            document.getElementById('custom-modal').classList.remove('hidden');
+            document.getElementById('custom-modal').classList.add('flex');
+        }
+
+        function closeModal() {
+            document.getElementById('custom-modal').classList.add('hidden');
+            document.getElementById('custom-modal').classList.remove('flex');
+        }
+
+        /**
+         * Sets the automatic date to today.
+         */
+        function setTodayDate() {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+        }
+
+        /**
+         * Handles getting the current GPS location with better offline robustness.
+         */
+        function getGpsLocation() {
+            gpsInput.value = 'Attempting to fetch...';
+            getGpsBtn.disabled = true;
+            gpsBtnText.textContent = 'Fetching Location...';
+            gpsLoader.classList.remove('hidden');
+            gpsError.classList.add('hidden');
+            
+            if (navigator.geolocation) {
+                // Options configured for better offline performance:
+                // 1. enableHighAccuracy: True for better field data.
+                // 2. timeout: Increased to 30 seconds to allow for satellite lock without network assist.
+                // 3. maximumAge: 0 to ensure we get a fresh reading.
+                const options = { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 };
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude.toFixed(6);
+                        const lon = position.coords.longitude.toFixed(6);
+                        const accuracy = position.coords.accuracy.toFixed(1);
+                        
+                        gpsInput.value = `Lat: ${lat}, Lon: ${lon} (±${accuracy}m)`;
+                        
+                        // Reset button state
+                        getGpsBtn.disabled = false;
+                        gpsBtnText.textContent = 'Get Current GPS Location';
+                        gpsLoader.classList.add('hidden');
+                        showModal("Location Found", `GPS fix achieved with accuracy: ±${accuracy} meters.`, [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+                    },
+                    (error) => {
+                        console.error("GPS Error:", error);
+                        
+                        let errorMessage = 'Could not retrieve GPS location.';
+                        // Geolocation errors: 1: Permission denied, 2: Position unavailable, 3: Timeout
+                        if (error.code === 1) {
+                            errorMessage = 'Permission denied. Please allow location access for this application.';
+                        } else if (error.code === 2) {
+                            errorMessage = 'Position unavailable. Try moving to a spot with a clearer sky view.';
+                        } else if (error.code === 3) {
+                            errorMessage = 'Timeout reached. Could not get a satellite lock within 30 seconds.';
+                        }
+
+                        gpsInput.value = 'GPS Unavailable';
+                        gpsError.textContent = `Error: ${errorMessage}`;
+                        gpsError.classList.remove('hidden');
+                        
+                        // Reset button state
+                        getGpsBtn.disabled = false;
+                        gpsBtnText.textContent = 'Get Current GPS Location';
+                        gpsLoader.classList.add('hidden');
+                        showModal("Location Error", errorMessage, [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+                    },
+                    options
+                );
+            } else {
+                gpsInput.value = 'Geolocation not supported';
+                gpsError.textContent = 'Geolocation is not supported by this browser.';
+                gpsError.classList.remove('hidden');
+                
+                // Reset button state
+                getGpsBtn.disabled = false;
+                gpsBtnText.textContent = 'Get Current GPS Location';
+                gpsLoader.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Toggles the network status indicator.
+         */
+        function updateStatusIndicator(isSyncing = false) {
+            const pendingCount = getPendingRecords().length;
+            
+            if (isSyncing) {
+                statusIndicator.textContent = 'Syncing...';
+                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-syncing';
+                syncIconSvg.classList.add('sync-icon');
+                return;
+            }
+            
+            syncIconSvg.classList.remove('sync-icon');
+
+            if (pendingCount > 0) {
+                statusIndicator.textContent = `Offline (${pendingCount} pending)`;
+                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
+                syncButton.textContent = `Sync ${pendingCount} Records to Google Sheets`;
+                syncButton.disabled = false;
+            } else if (navigator.onLine) {
+                statusIndicator.textContent = 'Online (Synced)';
+                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-online';
+                syncButton.textContent = `All Records Synced`;
+                syncButton.disabled = true;
+            } else {
+                statusIndicator.textContent = 'Offline (Synced)';
+                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
+                syncButton.textContent = `Offline - No Records to Sync`;
+                syncButton.disabled = true;
+            }
+        }
+
+        // --- Local Storage Functions (Replacing Firestore) ---
+
+        /**
+         * Retrieves all records from local storage.
+         */
+        function getLocalRecords() {
+            try {
+                const data = localStorage.getItem(STORAGE_KEY);
+                return data ? JSON.parse(data) : [];
+            } catch (e) {
+                console.error("Error reading from local storage:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves the full list of records back to local storage.
+         * @param {Array<Object>} records - The list of records to save.
+         */
+        function saveLocalRecords(records) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+                renderData();
+                updateStatusIndicator();
+            } catch (e) {
+                console.error("Error writing to local storage:", e);
+                showModal("Local Storage Error", "Failed to save data locally. Your browser storage might be full or corrupted.", [{label: 'OK', className: 'bg-red-600 text-white hover:bg-red-700', onClick: closeModal}]);
+            }
+        }
+        
+        /**
+         * Retrieves pending sync records from local storage.
+         */
+        function getPendingRecords() {
+            try {
+                const data = localStorage.getItem(PENDING_SYNC_KEY);
+                return data ? JSON.parse(data) : [];
+            } catch (e) {
+                console.error("Error reading pending sync storage:", e);
+                return [];
+            }
+        }
+        
+        /**
+         * Saves pending sync records back to local storage.
+         */
+        function savePendingRecords(records) {
+            try {
+                localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(records));
+                updateStatusIndicator();
+            } catch (e) {
+                console.error("Error writing pending sync storage:", e);
+            }
+        }
+
+        /**
+         * Adds a record to local storage for display and marks it for sync.
+         */
+        function addLocalRecord(record) {
+            const records = getLocalRecords();
+            let pending = getPendingRecords();
+            
+            // Assign a temporary unique ID for local tracking
+            const tempId = `local-${Date.now()}`;
+            const newRecord = { ...record, id: tempId, deviceId: deviceId, isSynced: false };
+
+            records.unshift(newRecord); // Add to the start for visibility
+            pending.push(newRecord);    // Add to pending sync queue
+            
+            saveLocalRecords(records);
+            savePendingRecords(pending);
+        }
+        
+        /**
+         * Marks a record as synced and removes it from the pending queue.
+         */
+        function markRecordsAsSynced(syncedRecordIds) {
+            let records = getLocalRecords();
+            let pending = getPendingRecords();
+
+            // 1. Update main records list
+            records = records.map(record => {
+                if (syncedRecordIds.includes(record.id)) {
+                    // Mark as synced
+                    return { ...record, isSynced: true };
+                }
+                return record;
+            });
+
+            // 2. Clear pending queue of successfully synced records
+            pending = pending.filter(record => !syncedRecordIds.includes(record.id));
+            
+            saveLocalRecords(records);
+            savePendingRecords(pending);
+        }
+
+        // --- UI Rendering ---
+
+        /**
+         * Renders the list of collection records from local storage.
+         */
+        function renderData() {
+            const records = getLocalRecords();
+            dataList.innerHTML = '';
+            loadingMessage.classList.add('hidden');
+
+            if (records.length === 0) {
+                dataList.innerHTML = '<p class="text-center text-gray-500">No records found. Start by adding one above!</p>';
+                return;
+            }
+
+            // Sort by creation time (newest first, based on local ID generation)
+            records.sort((a, b) => {
+                const timeA = a.id.includes('local') ? parseInt(a.id.split('-')[1]) : 0;
+                const timeB = b.id.includes('local') ? parseInt(b.id.split('-')[1]) : 0;
+                return timeB - timeA;
+            });
+
+
+            records.forEach(record => {
+                const docId = record.id;
+                const isSynced = record.isSynced;
+                
+                const listItem = document.createElement('div');
+                listItem.className = `p-4 border border-gray-200 rounded-lg shadow-sm transition-all ${isSynced ? 'bg-white hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100 border-red-300'}`;
+                
+                const syncBadge = isSynced 
+                    ? `<span class="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded-full">Synced</span>`
+                    : `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded-full">PENDING SYNC</span>`;
+
+                // --- Data Display ---
+                listItem.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <p class="text-xs text-gray-500">Record ID: ${docId}</p>
+                        ${syncBadge}
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <p><strong>Date:</strong> ${record.dateCollected || 'N/A'}</p>
+                        <p><strong>Range:</strong> ${record.range || 'N/A'}</p>
+                        <p><strong>Village:</strong> ${record.village || 'N/A'}</p>
+                        <p><strong>Species:</strong> ${record.species || 'N/A'}</p>
+                        <p><strong>Seed Amount:</strong> ${record.seedAmountKg !== undefined ? `${record.seedAmountKg} kg` : 'N/A'}</p>
+                        <p><strong>CPT No.:</strong> ${record.cptNo || 'N/A'}</p>
+                        <p class="col-span-2 break-words">
+                            <span class="font-bold">GPS:</span> ${record.gpsLocation || 'N/A'}
+                        </p>
+                    </div>
+                    
+                    <!-- Action Buttons (Simplified for local storage) -->
+                    <div class="flex space-x-2 mt-3 justify-end">
+                        <button data-id="${docId}" data-action="delete" class="text-sm font-medium text-red-600 hover:text-red-800">Delete</button>
+                    </div>
+                `;
+                dataList.appendChild(listItem);
+            });
+
+            // Add event listeners for action buttons
+            dataList.querySelectorAll('button[data-action="delete"]').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const docId = e.target.dataset.id;
+                    showModal(
+                        "Confirm Deletion",
+                        "Are you sure you want to delete this record locally? If it was already synced, it won't be deleted from the sheet.",
+                        [
+                            { label: 'Cancel', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal },
+                            { label: 'Delete', className: 'bg-red-600 text-white hover:bg-red-700', onClick: () => deleteLocalRecord(docId) }
+                        ]
+                    );
+                });
+            });
+        }
+
+        /**
+         * Saves a new record locally and adds it to the sync queue.
+         */
+        function saveData(e) {
+            e.preventDefault();
+            
+            const record = {
+                range: document.getElementById('input-range').value,
+                village: document.getElementById('input-village').value.trim(),
+                dateCollected: dateInput.value,
+                species: document.getElementById('input-species').value,
+                seedAmountKg: parseFloat(document.getElementById('input-seed-kg').value),
+                gpsLocation: gpsInput.value.trim(),
+                cptNo: document.getElementById('input-cpt').value.trim(),
+                submittedAt: new Date().toISOString()
+            };
+
+            // Enhanced validation for GPS field
+            if (!record.gpsLocation || record.gpsLocation.includes('Unavailable') || record.gpsLocation.includes('Fetching') || !record.gpsLocation.startsWith('Lat:')) {
+                 showModal("Input Error", "Please successfully fetch the GPS location before saving. Ensure you have a clear sky view for a satellite lock.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+                 return;
+            }
+            
+            addLocalRecord(record);
+            showModal("Local Save Success", "Record saved successfully to local storage. Click 'Sync' when you have a connection to upload it to Google Sheets.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+            
+            // Clear form on success
+            form.reset(); 
+            setTodayDate(); 
+            gpsInput.value = 'Lat: -, Lon: -'; // Reset GPS field
+        }
+
+        /**
+         * Deletes a record from local storage.
+         */
+        function deleteLocalRecord(docId) {
+            let records = getLocalRecords().filter(r => r.id !== docId);
+            let pending = getPendingRecords().filter(r => r.id !== docId);
+            
+            saveLocalRecords(records);
+            savePendingRecords(pending);
+            showModal("Deleted", "Record removed from local device storage.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+        }
+        
+        // --- Google Apps Script Sync Logic ---
+
+        /**
+         * Synchronizes all pending records to Google Sheets via Apps Script.
+         */
+        async function syncToSheets() {
+            if (APPS_SCRIPT_URL === "APPS_SCRIPT_URL_PLACEHOLDER") {
+                showModal("Configuration Error", "The Google Apps Script URL has not been configured. Please replace the placeholder in the code.", [{label: 'OK', className: 'bg-red-600 text-white hover:bg-red-700', onClick: closeModal}]);
+                return;
+            }
+
+            const pendingRecords = getPendingRecords();
+            if (pendingRecords.length === 0) {
+                updateStatusIndicator();
+                return;
+            }
+            
+            // Show syncing status
+            updateStatusIndicator(true);
+            syncButton.disabled = true;
+            saveButton.disabled = true;
+
+            showModal("Syncing Data", `Attempting to upload ${pendingRecords.length} record(s) to Google Sheets...`, [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]);
+
+            const payload = JSON.stringify({ records: pendingRecords });
+            
+            try {
+                // Fetch call uses the standard no-cors mode required for Apps Script deployment
+                await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: payload
+                });
+
+                // Since we cannot read the response in no-cors mode, we rely on the
+                // request succeeding (i.e., no network/DNS error) to assume the data was sent.
+                const syncedIds = pendingRecords.map(r => r.id);
+                markRecordsAsSynced(syncedIds);
+                closeModal();
+                showModal("Sync Complete!", `Successfully sent ${syncedIds.length} records for logging. Check your Google Sheet to verify the data.`, [{label: 'Great!', className: 'primary-btn', onClick: closeModal}]);
+
+            } catch (error) {
+                console.error("Sync failed:", error);
+                closeModal();
+                showModal("Sync Failed", `Failed to connect to Google Sheets endpoint. Please check your network connection and the Apps Script URL. Error: ${error.message}`, [{label: 'Retry', className: 'primary-btn', onClick: () => syncToSheets()}, {label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]);
+            } finally {
+                updateStatusIndicator(false); // Reset status
+                syncButton.disabled = false;
+                saveButton.disabled = false;
+            }
+        }
+        
+        // --- Initialization ---
+
+        function initializeApp() {
+            setTodayDate();
+            renderData();
+            updateStatusIndicator();
+            
+            // Event Listeners
+            form.addEventListener('submit', saveData);
+            getGpsBtn.addEventListener('click', getGpsLocation);
+            syncButton.addEventListener('click', syncToSheets);
+            
+            // Check for connection status changes
+            window.addEventListener('online', () => updateStatusIndicator());
+            window.addEventListener('offline', () => updateStatusIndicator());
+        }
+        
+        // Start the application setup
+        initializeApp();
+
+    </script>
+</body>
+</html>
+
