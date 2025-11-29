@@ -669,10 +669,7 @@
                 // Fetch call uses the standard no-cors mode required for Apps Script deployment
                 await fetch(APPS_SCRIPT_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    
                     body: payload
                 });
 
