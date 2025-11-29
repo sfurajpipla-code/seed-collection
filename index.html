@@ -62,19 +62,24 @@
         }
 
         .primary-btn {
-            background-color: var(--primary-blue);
             color: white;
             padding: 0.75rem 1.5rem;
             border-radius: 0.5rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            /* Default button styles are set in JS using Tailwind classes */
         }
+        
         .primary-btn:hover:not(:disabled) {
-            background-color: #1e40af;
+            filter: brightness(110%);
         }
-        .primary-btn:disabled {
-            background-color: #93c5fd;
+        
+        /* Specific style for offline/disabled sync button */
+        .sync-btn-offline {
+            background-color: var(--danger-red) !important;
+            color: white;
+            opacity: 0.8;
             cursor: not-allowed;
         }
 
@@ -123,19 +128,23 @@
         }
         /* Styles for printing/PDF generation */
         @media print {
+            /* Hide everything that isn't the print container */
             body > :not(.print-container) {
-                display: none; /* Hide everything except the print container */
+                display: none; 
             }
             .print-container {
-                display: block !important;
+                display: block !important; /* Force the print container to be visible */
                 margin: 0;
-                padding: 0;
+                padding: 1rem;
                 font-size: 10pt;
                 color: #000;
+                width: 100%;
             }
             .print-header {
                 text-align: center;
                 margin-bottom: 1rem;
+                padding-bottom: 0.5rem;
+                border-bottom: 2px solid #000;
             }
             .print-record {
                 border: 1px solid #ccc;
@@ -224,7 +233,7 @@
                 <!-- GPS Location Button/Display -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">GPS Location</label>
-                    <button type="button" id="get-gps-btn" class="primary-btn w-full mb-2 flex items-center justify-center">
+                    <button type="button" id="get-gps-btn" class="primary-btn bg-blue-600 hover:bg-blue-700 w-full mb-2 flex items-center justify-center">
                         <span id="gps-btn-text">Get Current GPS Location</span>
                         <div id="gps-loader" class="loader ml-3 hidden"></div>
                     </button>
@@ -232,7 +241,7 @@
                     <p id="gps-error" class="error-message hidden"></p>
                 </div>
 
-                <button type="submit" id="save-btn" class="primary-btn w-full mt-4">Save Record Locally</button>
+                <button type="submit" id="save-btn" class="primary-btn bg-green-600 hover:bg-green-700 w-full mt-4">Save Record Locally</button>
             </form>
         </div>
 
@@ -248,7 +257,7 @@
                     </svg>
                     Download Data
                 </button>
-                <button id="sync-button" class="primary-btn flex-1 flex items-center justify-center">
+                <button id="sync-button" class="primary-btn flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-700">
                     <svg id="sync-icon-svg" class="h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0012 4a8.001 8.001 0 00-7.01 10.957M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2l-.001-.002m0 0a8.003 8.003 0 0115.357 2l.001.002z"/>
                     </svg>
@@ -295,12 +304,12 @@
         const getGpsBtn = document.getElementById('get-gps-btn');
         const gpsError = document.getElementById('gps-error');
         const syncButton = document.getElementById('sync-button');
-        const downloadButton = document.getElementById('download-button'); // NEW REFERENCE
+        const downloadButton = document.getElementById('download-button'); 
         const syncIconSvg = document.getElementById('sync-icon-svg');
         const saveButton = document.getElementById('save-btn');
         const gpsBtnText = document.getElementById('gps-btn-text');
         const gpsLoader = document.getElementById('gps-loader');
-        const printContainer = document.getElementById('print-container'); // NEW REFERENCE
+        const printContainer = document.getElementById('print-container'); 
 
         let deviceId = localStorage.getItem(DEVICE_ID_KEY);
         if (!deviceId) {
@@ -338,7 +347,7 @@
                 } else if (action.className.includes('status-syncing')) {
                     btnClass += ' bg-yellow-100 text-yellow-800 cursor-default';
                 } else if (action.className.includes('status-success')) {
-                    btnClass += ' bg-green-100 text-green-800 hover:bg-green-200';
+                    btnClass += ' bg-green-600 text-white hover:bg-green-700';
                 }
 
                 button.textContent = action.label;
@@ -394,9 +403,6 @@
             
             if (navigator.geolocation) {
                 // Options configured for better offline performance:
-                // 1. enableHighAccuracy: True for better field data.
-                // 2. timeout: Increased to 30 seconds to allow for satellite lock without network assist.
-                // 3. maximumAge: 0 to ensure we get a fresh reading.
                 const options = { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 };
 
                 navigator.geolocation.getCurrentPosition(
@@ -451,40 +457,68 @@
         }
 
         /**
-         * Toggles the network status indicator.
+         * Toggles the network status indicator and sync button state.
          */
         function updateStatusIndicator(isSyncing = false) {
             const pendingCount = getPendingRecords().length;
-            
+            const isOnline = navigator.onLine;
+
+            // 1. Handle Syncing State
             if (isSyncing) {
                 statusIndicator.textContent = 'Syncing...';
                 statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-syncing';
                 syncIconSvg.classList.add('sync-icon');
                 syncButton.textContent = `Syncing ${pendingCount} Records...`;
-                downloadButton.disabled = true; // Disable download while syncing
+                syncButton.disabled = true;
+                downloadButton.disabled = true; 
+                // Remove all other classes and add syncing styles
+                syncButton.classList.remove('sync-btn-offline', 'bg-blue-600', 'hover:bg-blue-700', 'bg-gray-400', 'cursor-not-allowed');
+                syncButton.classList.add('bg-yellow-500', 'opacity-80', 'cursor-wait');
                 return;
             }
             
+            // 2. Handle Non-Syncing States
             syncIconSvg.classList.remove('sync-icon');
+            syncButton.classList.remove('sync-btn-offline', 'bg-blue-600', 'hover:bg-blue-700', 'bg-gray-400', 'cursor-not-allowed', 'opacity-80', 'cursor-wait', 'bg-yellow-500');
+            syncButton.classList.add('primary-btn');
 
             if (pendingCount > 0) {
-                statusIndicator.textContent = `Offline (${pendingCount} pending)`;
-                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
-                syncButton.textContent = `Sync ${pendingCount} Records`;
-                syncButton.disabled = false;
-                downloadButton.disabled = false; // Enable download
-            } else if (navigator.onLine) {
-                statusIndicator.textContent = 'Online (Synced)';
-                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-online';
-                syncButton.textContent = `All Records Synced`;
-                syncButton.disabled = true;
-                downloadButton.disabled = true; // Disable download if no data
+                downloadButton.disabled = false;
+                
+                if (isOnline) {
+                    // Online & Pending: Active Sync Button (Blue)
+                    statusIndicator.textContent = `Online (${pendingCount} pending)`;
+                    statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-online';
+                    syncButton.textContent = `Sync ${pendingCount} Records`;
+                    syncButton.disabled = false;
+                    syncButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                } else {
+                    // Offline & Pending: Disabled Sync Button (Red)
+                    statusIndicator.textContent = `Offline (${pendingCount} pending)`;
+                    statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
+                    syncButton.textContent = `Offline - Sync ${pendingCount} Records`;
+                    syncButton.disabled = true;
+                    syncButton.classList.add('sync-btn-offline'); 
+                }
             } else {
-                statusIndicator.textContent = 'Offline (Synced)';
-                statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
-                syncButton.textContent = `Offline - No Records to Sync`;
-                syncButton.disabled = true;
-                downloadButton.disabled = true; // Disable download if no data
+                // No Pending Records
+                downloadButton.disabled = true;
+
+                if (isOnline) {
+                    // Online & Synced: Disabled (Gray)
+                    statusIndicator.textContent = 'Online (Synced)';
+                    statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-online';
+                    syncButton.textContent = `All Records Synced`;
+                    syncButton.disabled = true;
+                    syncButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+                } else {
+                    // Offline & Synced: Disabled (Red/Gray for Offline)
+                    statusIndicator.textContent = 'Offline (Synced)';
+                    statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
+                    syncButton.textContent = `Offline - No Records to Sync`;
+                    syncButton.disabled = true;
+                    syncButton.classList.add('sync-btn-offline');
+                }
             }
         }
 
@@ -698,13 +732,20 @@
                 updateStatusIndicator();
                 return;
             }
+
+            if (!navigator.onLine) {
+                 showModal("Network Error", "You must be online to initiate the synchronization process.", [{label: 'OK', className: 'bg-red-600 text-white hover:bg-red-700', onClick: closeModal}]);
+                 return;
+            }
             
             // 1. Show syncing modal
             updateStatusIndicator(true); // Sets spinning icon and status text
             syncButton.disabled = true;
             saveButton.disabled = true;
 
-            showModal("Syncing Data", `Attempting to upload ${recordCount} record(s) to Google Sheets.`, [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]);
+            showModal("Syncing Data", `Attempting to upload ${recordCount} record(s) to Google Sheets...`, 
+                      [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]
+            );
 
             const payload = JSON.stringify({ records: pendingRecords });
             
@@ -720,21 +761,28 @@
                 });
 
 
-                // 3. Immediately show Sync Done modal and clear local data
-                const syncedIds = pendingRecords.map(r => r.id);
-                markRecordsAsSynced(syncedIds); // Clears local storage
-                
-                // Set state for modal close cleanup
-                isSyncDoneModalOpen = true; 
-                
-                // Show success modal immediately (non-blocking)
-                closeModal(); // Close the 'Syncing Data' modal
-                showModal("Sync Done!", 
-                          `${recordCount} record(s) were successfully sent for logging. Local data has been cleared.`, 
-                          [{label: 'OK (Clears Data)', className: 'status-success text-green-800', onClick: () => {
-                              // The closeModal function now handles renderData and updateStatusIndicator
-                          }}]
-                );
+                // 3. Immediately show Sync Done modal and clear local data AFTER a delay
+                // Wait for 1.5 seconds to simulate data transmission time
+                setTimeout(() => {
+                    const syncedIds = pendingRecords.map(r => r.id);
+                    markRecordsAsSynced(syncedIds); // Clears local storage
+                    
+                    // Set state for modal close cleanup
+                    isSyncDoneModalOpen = true; 
+                    
+                    // Close the 'Syncing Data' modal and show success
+                    closeModal(); 
+                    showModal("Sync Complete!", 
+                              `${recordCount} record(s) were successfully sent for logging. Local data has been cleared.`, 
+                              [{label: 'OK (Clears Data)', className: 'status-success', onClick: () => {
+                                  // The closeModal function handles renderData and updateStatusIndicator
+                              }}]
+                    );
+                    
+                    // In case the modal is not closed for some reason, ensure status resets
+                    updateStatusIndicator(false); 
+
+                }, 1500); // 1.5 second delay
 
             } catch (error) {
                 // This catch block handles immediate errors (e.g., APPS_SCRIPT_URL not being an accessible URL)
@@ -745,13 +793,13 @@
                           [{label: 'Retry', className: 'primary-btn', onClick: () => syncToSheets()}, 
                            {label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]
                 );
-            } finally {
                 syncButton.disabled = false;
                 saveButton.disabled = false;
+                updateStatusIndicator(false);
             }
         }
         
-        // --- Download Logic (New) ---
+        // --- Download Logic (Fixed) ---
 
         /**
          * Prompts the user to select the download format.
@@ -791,13 +839,28 @@
             if (records.length === 0) return;
 
             // 1. Define Headers
-            const headers = Object.keys(records[0]).filter(key => key !== 'isSynced');
+            // Use user-friendly column names
+            const fieldMap = {
+                id: "Record ID",
+                deviceId: "Device ID",
+                dateCollected: "Date Collected",
+                range: "Range",
+                village: "Village",
+                species: "Species",
+                seedAmountKg: "Seed Amount (kg)",
+                cptNo: "CPT No.",
+                gpsLocation: "GPS Location",
+                submittedAt: "Submitted At"
+            };
+            
+            const keys = Object.keys(fieldMap);
+            const headers = keys.map(key => fieldMap[key]);
             
             // 2. Create CSV Content
             let csv = headers.join(',') + '\n';
             records.forEach(row => {
-                const values = headers.map(header => {
-                    let value = row[header] === null || row[header] === undefined ? '' : row[header];
+                const values = keys.map(key => {
+                    let value = row[key] === null || row[key] === undefined ? '' : row[key];
                     // Escape commas and wrap in quotes if necessary
                     value = String(value).replace(/"/g, '""'); 
                     if (value.includes(',') || value.includes('\n')) {
@@ -815,6 +878,7 @@
 
         /**
          * Generates a printable report that can be saved as a PDF using the browser's print dialog.
+         * FIX: Ensures the hidden container is made visible before print is triggered.
          */
         function downloadAsPrintableReport() {
             const records = getPendingRecords();
@@ -833,7 +897,8 @@
             records.forEach((record, index) => {
                 htmlContent += `
                     <div class="print-record">
-                        <h3>Record #${index + 1} (${record.id})</h3>
+                        <h3>Record #${index + 1}</h3>
+                        <p><strong>Record ID:</strong> ${record.id}</p>
                         <p><strong>Date Collected:</strong> ${record.dateCollected}</p>
                         <p><strong>Range:</strong> ${record.range}</p>
                         <p><strong>Village:</strong> ${record.village}</p>
@@ -846,15 +911,19 @@
                 `;
             });
 
-            // Inject the content into the hidden print container
+            // 1. Inject the content
             printContainer.innerHTML = htmlContent;
             
-            // Trigger the browser's print function
+            // 2. Make the container visible (by removing 'hidden') so the print media CSS can take over
+            printContainer.classList.remove('hidden'); 
+            
+            // 3. Trigger the browser's print function
             window.print();
             
-            // Clean up the print container content after a slight delay
+            // 4. Clean up and re-hide
             setTimeout(() => {
                 printContainer.innerHTML = '';
+                printContainer.classList.add('hidden'); // Re-hide the container
             }, 500);
         }
         
@@ -882,15 +951,16 @@
         function initializeApp() {
             setTodayDate();
             renderData();
-            updateStatusIndicator();
+            // Initial call sets correct status (online/offline) and button state
+            updateStatusIndicator(); 
             
             // Event Listeners
             form.addEventListener('submit', saveData);
             getGpsBtn.addEventListener('click', getGpsLocation);
             syncButton.addEventListener('click', syncToSheets);
-            downloadButton.addEventListener('click', downloadDataPrompt); // NEW EVENT LISTENER
+            downloadButton.addEventListener('click', downloadDataPrompt); 
             
-            // Check for connection status changes
+            // Check for connection status changes and update UI immediately
             window.addEventListener('online', () => updateStatusIndicator());
             window.addEventListener('offline', () => updateStatusIndicator());
         }
