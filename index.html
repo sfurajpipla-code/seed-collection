@@ -94,6 +94,11 @@
             color: #b45309;
             border: 1px solid #fde68a;
         }
+        .status-success {
+            background-color: #d1fae5;
+            color: var(--success-color);
+            border: 1px solid #a7f3d0;
+        }
         .error-message {
             color: var(--danger-red);
             font-size: 0.875rem;
@@ -115,6 +120,29 @@
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+        /* Styles for printing/PDF generation */
+        @media print {
+            body > :not(.print-container) {
+                display: none; /* Hide everything except the print container */
+            }
+            .print-container {
+                display: block !important;
+                margin: 0;
+                padding: 0;
+                font-size: 10pt;
+                color: #000;
+            }
+            .print-header {
+                text-align: center;
+                margin-bottom: 1rem;
+            }
+            .print-record {
+                border: 1px solid #ccc;
+                padding: 10px;
+                margin-bottom: 10px;
+                page-break-inside: avoid;
+            }
         }
     </style>
 </head>
@@ -211,12 +239,23 @@
         <!-- Data Sync and List -->
         <div class="card mt-6">
             <h2 class="text-xl font-semibold mb-4 text-gray-700">Submitted Records</h2>
-            <button id="sync-button" class="primary-btn w-full mb-4 flex items-center justify-center">
-                <svg id="sync-icon-svg" class="h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0012 4a8.001 8.001 0 00-7.01 10.957M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2l-.001-.002m0 0a8.003 8.003 0 0115.357 2l.001.002z"/>
-                </svg>
-                Sync 0 Records to Google Sheets
-            </button>
+            
+            <!-- NEW: Download and Sync Buttons -->
+            <div class="flex space-x-2 mb-4"> 
+                <button id="download-button" class="primary-btn flex-1 flex items-center justify-center bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400">
+                    <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    Download Data
+                </button>
+                <button id="sync-button" class="primary-btn flex-1 flex items-center justify-center">
+                    <svg id="sync-icon-svg" class="h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0012 4a8.001 8.001 0 00-7.01 10.957M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2l-.001-.002m0 0a8.003 8.003 0 0115.357 2l.001.002z"/>
+                    </svg>
+                    Sync 0 Records
+                </button>
+            </div>
+            
             <div id="data-list" class="space-y-3">
                 <p class="text-center text-gray-500" id="loading-message">Loading local records...</p>
             </div>
@@ -232,6 +271,9 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Container for Printable Content (Hidden by default) -->
+        <div id="print-container" class="print-container hidden"></div>
     </div>
 
     <script>
@@ -253,10 +295,12 @@
         const getGpsBtn = document.getElementById('get-gps-btn');
         const gpsError = document.getElementById('gps-error');
         const syncButton = document.getElementById('sync-button');
+        const downloadButton = document.getElementById('download-button'); // NEW REFERENCE
         const syncIconSvg = document.getElementById('sync-icon-svg');
         const saveButton = document.getElementById('save-btn');
         const gpsBtnText = document.getElementById('gps-btn-text');
         const gpsLoader = document.getElementById('gps-loader');
+        const printContainer = document.getElementById('print-container'); // NEW REFERENCE
 
         let deviceId = localStorage.getItem(DEVICE_ID_KEY);
         if (!deviceId) {
@@ -264,7 +308,9 @@
             localStorage.setItem(DEVICE_ID_KEY, deviceId);
         }
         userIdSpan.textContent = deviceId;
-
+        
+        // State to manage the sync completion modal status
+        let isSyncDoneModalOpen = false;
 
         // --- Utility Functions ---
 
@@ -289,8 +335,10 @@
                     btnClass += ' bg-gray-200 text-gray-700 hover:bg-gray-300';
                 } else if (action.className.includes('bg-red-')) {
                     btnClass += ' bg-red-600 text-white hover:bg-red-700';
-                } else if (action.className === 'status-syncing text-yellow-800') {
+                } else if (action.className.includes('status-syncing')) {
                     btnClass += ' bg-yellow-100 text-yellow-800 cursor-default';
+                } else if (action.className.includes('status-success')) {
+                    btnClass += ' bg-green-100 text-green-800 hover:bg-green-200';
                 }
 
                 button.textContent = action.label;
@@ -309,9 +357,21 @@
             document.getElementById('custom-modal').classList.add('flex');
         }
 
+        /**
+         * Closes the modal and triggers a refresh if it was the sync done modal.
+         */
         function closeModal() {
             document.getElementById('custom-modal').classList.add('hidden');
             document.getElementById('custom-modal').classList.remove('flex');
+
+            // --- NEW LOGIC: Delete data on modal close if sync was reported complete ---
+            if (isSyncDoneModalOpen) {
+                // This function is only called after a successful 'fire and forget' sync attempt.
+                isSyncDoneModalOpen = false;
+                renderData(); // Refresh the list
+                updateStatusIndicator(); // Update the sync button counter
+            }
+            // --------------------------------------------------------------------------
         }
 
         /**
@@ -400,6 +460,8 @@
                 statusIndicator.textContent = 'Syncing...';
                 statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-syncing';
                 syncIconSvg.classList.add('sync-icon');
+                syncButton.textContent = `Syncing ${pendingCount} Records...`;
+                downloadButton.disabled = true; // Disable download while syncing
                 return;
             }
             
@@ -408,18 +470,21 @@
             if (pendingCount > 0) {
                 statusIndicator.textContent = `Offline (${pendingCount} pending)`;
                 statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
-                syncButton.textContent = `Sync ${pendingCount} Records to Google Sheets`;
+                syncButton.textContent = `Sync ${pendingCount} Records`;
                 syncButton.disabled = false;
+                downloadButton.disabled = false; // Enable download
             } else if (navigator.onLine) {
                 statusIndicator.textContent = 'Online (Synced)';
                 statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-online';
                 syncButton.textContent = `All Records Synced`;
                 syncButton.disabled = true;
+                downloadButton.disabled = true; // Disable download if no data
             } else {
                 statusIndicator.textContent = 'Offline (Synced)';
                 statusIndicator.className = 'px-3 py-1 text-sm font-medium rounded-full status-offline';
                 syncButton.textContent = `Offline - No Records to Sync`;
                 syncButton.disabled = true;
+                downloadButton.disabled = true; // Disable download if no data
             }
         }
 
@@ -431,6 +496,7 @@
         function getLocalRecords() {
             try {
                 const data = localStorage.getItem(STORAGE_KEY);
+                // NOTE: Local records now only contain records *NOT YET SYNCED*
                 return data ? JSON.parse(data) : [];
             } catch (e) {
                 console.error("Error reading from local storage:", e);
@@ -440,11 +506,14 @@
 
         /**
          * Saves the full list of records back to local storage.
+         * For this new sync logic, STORAGE_KEY and PENDING_SYNC_KEY will hold the same data.
          * @param {Array<Object>} records - The list of records to save.
          */
         function saveLocalRecords(records) {
             try {
+                // In this new model, the main record list IS the pending list
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+                localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(records));
                 renderData();
                 updateStatusIndicator();
             } catch (e) {
@@ -454,28 +523,17 @@
         }
         
         /**
-         * Retrieves pending sync records from local storage.
+         * Retrieves pending sync records from local storage (same as getLocalRecords now).
          */
         function getPendingRecords() {
-            try {
-                const data = localStorage.getItem(PENDING_SYNC_KEY);
-                return data ? JSON.parse(data) : [];
-            } catch (e) {
-                console.error("Error reading pending sync storage:", e);
-                return [];
-            }
+            return getLocalRecords();
         }
         
         /**
-         * Saves pending sync records back to local storage.
+         * Saves pending sync records back to local storage (same as saveLocalRecords now).
          */
         function savePendingRecords(records) {
-            try {
-                localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(records));
-                updateStatusIndicator();
-            } catch (e) {
-                console.error("Error writing pending sync storage:", e);
-            }
+            saveLocalRecords(records);
         }
 
         /**
@@ -483,40 +541,28 @@
          */
         function addLocalRecord(record) {
             const records = getLocalRecords();
-            let pending = getPendingRecords();
             
             // Assign a temporary unique ID for local tracking
             const tempId = `local-${Date.now()}`;
-            const newRecord = { ...record, id: tempId, deviceId: deviceId, isSynced: false };
+            const newRecord = { 
+                ...record, 
+                id: tempId, 
+                deviceId: deviceId, 
+                isSynced: false // Keep for rendering status, but functionally means 'pending'
+            };
 
             records.unshift(newRecord); // Add to the start for visibility
-            pending.push(newRecord);    // Add to pending sync queue
             
-            saveLocalRecords(records);
-            savePendingRecords(pending);
+            saveLocalRecords(records); // Saves to both STORAGE_KEY and PENDING_SYNC_KEY
         }
         
         /**
-         * Marks a record as synced and removes it from the pending queue.
+         * Clears all local and pending records after successful sync SEND (fire and forget).
          */
         function markRecordsAsSynced(syncedRecordIds) {
-            let records = getLocalRecords();
-            let pending = getPendingRecords();
-
-            // 1. Update main records list
-            records = records.map(record => {
-                if (syncedRecordIds.includes(record.id)) {
-                    // Mark as synced
-                    return { ...record, isSynced: true };
-                }
-                return record;
-            });
-
-            // 2. Clear pending queue of successfully synced records
-            pending = pending.filter(record => !syncedRecordIds.includes(record.id));
-            
-            saveLocalRecords(records);
-            savePendingRecords(pending);
+            // NEW LOGIC: Delete all pending records immediately after sending
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(PENDING_SYNC_KEY);
         }
 
         // --- UI Rendering ---
@@ -525,12 +571,12 @@
          * Renders the list of collection records from local storage.
          */
         function renderData() {
-            const records = getLocalRecords();
+            const records = getLocalRecords(); // These are now ONLY pending records
             dataList.innerHTML = '';
             loadingMessage.classList.add('hidden');
 
             if (records.length === 0) {
-                dataList.innerHTML = '<p class="text-center text-gray-500">No records found. Start by adding one above!</p>';
+                dataList.innerHTML = '<p class="text-center text-gray-500">No pending records found. All data is synced or deleted.</p>';
                 return;
             }
 
@@ -544,16 +590,13 @@
 
             records.forEach(record => {
                 const docId = record.id;
-                const isSynced = record.isSynced;
-                
-                const listItem = document.createElement('div');
-                listItem.className = `p-4 border border-gray-200 rounded-lg shadow-sm transition-all ${isSynced ? 'bg-white hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100 border-red-300'}`;
-                
-                const syncBadge = isSynced 
-                    ? `<span class="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded-full">Synced</span>`
-                    : `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded-full">PENDING SYNC</span>`;
+                // Since only pending records are shown, the status is always PENDING SYNC
+                const syncBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded-full">PENDING SYNC</span>`;
 
                 // --- Data Display ---
+                const listItem = document.createElement('div');
+                listItem.className = `p-4 border border-gray-200 rounded-lg shadow-sm transition-all bg-red-50 hover:bg-red-100 border-red-300`;
+                
                 listItem.innerHTML = `
                     <div class="flex justify-between items-start mb-2">
                         <p class="text-xs text-gray-500">Record ID: ${docId}</p>
@@ -585,7 +628,7 @@
                     const docId = e.target.dataset.id;
                     showModal(
                         "Confirm Deletion",
-                        "Are you sure you want to delete this record locally? If it was already synced, it won't be deleted from the sheet.",
+                        "Are you sure you want to delete this record locally? This action will permanently remove the record and prevent it from being synced.",
                         [
                             { label: 'Cancel', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal },
                             { label: 'Delete', className: 'bg-red-600 text-white hover:bg-red-700', onClick: () => deleteLocalRecord(docId) }
@@ -631,15 +674,14 @@
          * Deletes a record from local storage.
          */
         function deleteLocalRecord(docId) {
+            // Since all records are pending, we just filter the main list
             let records = getLocalRecords().filter(r => r.id !== docId);
-            let pending = getPendingRecords().filter(r => r.id !== docId);
             
-            saveLocalRecords(records);
-            savePendingRecords(pending);
+            saveLocalRecords(records); // Updates both storage keys and triggers UI refresh
             showModal("Deleted", "Record removed from local device storage.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
         }
         
-        // --- Google Apps Script Sync Logic ---
+        // --- Google Apps Script Sync Logic (Modified for Fire and Forget) ---
 
         /**
          * Synchronizes all pending records to Google Sheets via Apps Script.
@@ -651,44 +693,188 @@
             }
 
             const pendingRecords = getPendingRecords();
-            if (pendingRecords.length === 0) {
+            const recordCount = pendingRecords.length;
+            if (recordCount === 0) {
                 updateStatusIndicator();
                 return;
             }
             
-            // Show syncing status
-            updateStatusIndicator(true);
+            // 1. Show syncing modal
+            updateStatusIndicator(true); // Sets spinning icon and status text
             syncButton.disabled = true;
             saveButton.disabled = true;
 
-            showModal("Syncing Data", `Attempting to upload ${pendingRecords.length} record(s) to Google Sheets...`, [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]);
+            showModal("Syncing Data", `Attempting to upload ${recordCount} record(s) to Google Sheets.`, [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]);
 
             const payload = JSON.stringify({ records: pendingRecords });
             
             try {
-                // Fetch call uses the standard no-cors mode required for Apps Script deployment
-                await fetch(APPS_SCRIPT_URL, {
+                // 2. Fetch call (Fire and Forget - DO NOT AWAIT)
+                fetch(APPS_SCRIPT_URL, {
                     method: 'POST',
-                    
                     body: payload
+                }).then(response => {
+                    console.log("Fetch initiated successfully (response received/ignored).");
+                }).catch(error => {
+                    console.error("Non-critical Sync Error (ignored for user feedback):", error);
                 });
 
-                // Since we cannot read the response in no-cors mode, we rely on the
-                // request succeeding (i.e., no network/DNS error) to assume the data was sent.
+
+                // 3. Immediately show Sync Done modal and clear local data
                 const syncedIds = pendingRecords.map(r => r.id);
-                markRecordsAsSynced(syncedIds);
-                closeModal();
-                showModal("Sync Complete!", `Successfully sent ${syncedIds.length} records for logging. Check your Google Sheet to verify the data.`, [{label: 'Great!', className: 'primary-btn', onClick: closeModal}]);
+                markRecordsAsSynced(syncedIds); // Clears local storage
+                
+                // Set state for modal close cleanup
+                isSyncDoneModalOpen = true; 
+                
+                // Show success modal immediately (non-blocking)
+                closeModal(); // Close the 'Syncing Data' modal
+                showModal("Sync Done!", 
+                          `${recordCount} record(s) were successfully sent for logging. Local data has been cleared.`, 
+                          [{label: 'OK (Clears Data)', className: 'status-success text-green-800', onClick: () => {
+                              // The closeModal function now handles renderData and updateStatusIndicator
+                          }}]
+                );
 
             } catch (error) {
-                console.error("Sync failed:", error);
+                // This catch block handles immediate errors (e.g., APPS_SCRIPT_URL not being an accessible URL)
+                console.error("Immediate Sync failed (e.g., DNS/URL error):", error);
                 closeModal();
-                showModal("Sync Done", `saved to  Google Sheets endpoint`  [{label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]);
+                showModal("Sync Failed", 
+                          `Failed to initiate sync connection. Please check your Apps Script URL. Error: ${error.message}`, 
+                          [{label: 'Retry', className: 'primary-btn', onClick: () => syncToSheets()}, 
+                           {label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]
+                );
             } finally {
-                updateStatusIndicator(false); // Reset status
                 syncButton.disabled = false;
                 saveButton.disabled = false;
             }
+        }
+        
+        // --- Download Logic (New) ---
+
+        /**
+         * Prompts the user to select the download format.
+         */
+        function downloadDataPrompt() {
+            const records = getPendingRecords();
+            if (records.length === 0) {
+                showModal("No Data to Download", "There are no pending records in local storage to download.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+                return;
+            }
+
+            const recordCount = records.length;
+
+            showModal(
+                "Download Local Data",
+                `Select the format to download your ${recordCount} pending record(s).`,
+                [
+                    { 
+                        label: 'Download CSV', 
+                        className: 'primary-btn bg-green-600 hover:bg-green-700', 
+                        onClick: downloadAsCsv 
+                    },
+                    { 
+                        label: 'Print/PDF Report', 
+                        className: 'primary-btn bg-indigo-600 hover:bg-indigo-700', 
+                        onClick: downloadAsPrintableReport 
+                    }
+                ]
+            );
+        }
+
+        /**
+         * Downloads the data as a CSV file.
+         */
+        function downloadAsCsv() {
+            const records = getPendingRecords();
+            if (records.length === 0) return;
+
+            // 1. Define Headers
+            const headers = Object.keys(records[0]).filter(key => key !== 'isSynced');
+            
+            // 2. Create CSV Content
+            let csv = headers.join(',') + '\n';
+            records.forEach(row => {
+                const values = headers.map(header => {
+                    let value = row[header] === null || row[header] === undefined ? '' : row[header];
+                    // Escape commas and wrap in quotes if necessary
+                    value = String(value).replace(/"/g, '""'); 
+                    if (value.includes(',') || value.includes('\n')) {
+                        value = `"${value}"`;
+                    }
+                    return value;
+                });
+                csv += values.join(',') + '\n';
+            });
+
+            // 3. Trigger Download
+            const dateStr = new Date().toISOString().split('T')[0];
+            downloadFile(`seed_collection_pending_data_${dateStr}.csv`, csv, 'text/csv');
+        }
+
+        /**
+         * Generates a printable report that can be saved as a PDF using the browser's print dialog.
+         */
+        function downloadAsPrintableReport() {
+            const records = getPendingRecords();
+            if (records.length === 0) return;
+
+            const dateStr = new Date().toLocaleString();
+            let htmlContent = `
+                <div class="print-header">
+                    <h1>Seed Collection Pending Data Report</h1>
+                    <p>Generated: ${dateStr}</p>
+                    <p>Device ID: ${deviceId}</p>
+                    <p>Total Records: ${records.length}</p>
+                </div>
+            `;
+            
+            records.forEach((record, index) => {
+                htmlContent += `
+                    <div class="print-record">
+                        <h3>Record #${index + 1} (${record.id})</h3>
+                        <p><strong>Date Collected:</strong> ${record.dateCollected}</p>
+                        <p><strong>Range:</strong> ${record.range}</p>
+                        <p><strong>Village:</strong> ${record.village}</p>
+                        <p><strong>Species:</strong> ${record.species}</p>
+                        <p><strong>Seed Amount (kg):</strong> ${record.seedAmountKg}</p>
+                        <p><strong>CPT No.:</strong> ${record.cptNo}</p>
+                        <p><strong>GPS Location:</strong> ${record.gpsLocation}</p>
+                        <p><strong>Submitted At:</strong> ${new Date(record.submittedAt).toLocaleString()}</p>
+                    </div>
+                `;
+            });
+
+            // Inject the content into the hidden print container
+            printContainer.innerHTML = htmlContent;
+            
+            // Trigger the browser's print function
+            window.print();
+            
+            // Clean up the print container content after a slight delay
+            setTimeout(() => {
+                printContainer.innerHTML = '';
+            }, 500);
+        }
+        
+        /**
+         * Generic file download utility.
+         * @param {string} filename - The name of the file to save.
+         * @param {string} text - The file content.
+         * @param {string} mimeType - The MIME type (e.g., 'text/csv').
+         */
+        function downloadFile(filename, text, mimeType) {
+            const element = document.createElement('a');
+            element.setAttribute('href', `data:${mimeType};charset=utf-8,${encodeURIComponent(text)}`);
+            element.setAttribute('download', filename);
+
+            element.style.display = 'none';
+            document.body.appendChild(element);
+
+            element.click();
+
+            document.body.removeChild(element);
         }
         
         // --- Initialization ---
@@ -702,6 +888,7 @@
             form.addEventListener('submit', saveData);
             getGpsBtn.addEventListener('click', getGpsLocation);
             syncButton.addEventListener('click', syncToSheets);
+            downloadButton.addEventListener('click', downloadDataPrompt); // NEW EVENT LISTENER
             
             // Check for connection status changes
             window.addEventListener('online', () => updateStatusIndicator());
@@ -728,4 +915,3 @@
     </script>
 </body>
 </html>
-
