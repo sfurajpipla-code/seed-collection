@@ -9,6 +9,10 @@
     <title>Seed Collection Field Data (Google Sheets Sync)</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load jsPDF and html2canvas for client-side PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
     <style>
         /* Mobile-first styling */
         :root {
@@ -126,32 +130,19 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        /* Styles for printing/PDF generation */
-        @media print {
-            /* Hide everything that isn't the print container */
-            body > :not(.print-container) {
-                display: none; 
-            }
-            .print-container {
-                display: block !important; /* Force the print container to be visible */
-                margin: 0;
-                padding: 1rem;
-                font-size: 10pt;
-                color: #000;
-                width: 100%;
-            }
-            .print-header {
-                text-align: center;
-                margin-bottom: 1rem;
-                padding-bottom: 0.5rem;
-                border-bottom: 2px solid #000;
-            }
-            .print-record {
-                border: 1px solid #ccc;
-                padding: 10px;
-                margin-bottom: 10px;
-                page-break-inside: avoid;
-            }
+
+        /* Styles for PDF generation content */
+        .pdf-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #000;
+        }
+        .pdf-record {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
         }
     </style>
 </head>
@@ -170,11 +161,7 @@
             </div>
         </div>
         
-        <!-- Google Apps Script URL Configuration (Hidden but important) -->
-        <div class="mb-4 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-sm text-yellow-800">
-            <p class="font-bold mb-1">SETUP REQUIRED:</p>
-            <p>You MUST replace the <code>APPS_SCRIPT_URL_PLACEHOLDER</code> in the JavaScript with your deployed Google Apps Script URL for cloud sync to work.</p>
-        </div>
+      
 
 
         <!-- Data Entry Form -->
@@ -281,8 +268,10 @@
             </div>
         </div>
         
-        <!-- Container for Printable Content (Hidden by default) -->
-        <div id="print-container" class="print-container hidden"></div>
+        <!-- Container for PDF Content (Always hidden on the screen) -->
+        <div id="pdf-content-wrapper" class="absolute -top-[9999px] w-[1000px] bg-white p-10">
+            <!-- Content for PDF rendering is dynamically injected here -->
+        </div>
     </div>
 
     <script>
@@ -309,7 +298,7 @@
         const saveButton = document.getElementById('save-btn');
         const gpsBtnText = document.getElementById('gps-btn-text');
         const gpsLoader = document.getElementById('gps-loader');
-        const printContainer = document.getElementById('print-container'); 
+        const pdfContentWrapper = document.getElementById('pdf-content-wrapper'); 
 
         let deviceId = localStorage.getItem(DEVICE_ID_KEY);
         if (!deviceId) {
@@ -318,7 +307,6 @@
         }
         userIdSpan.textContent = deviceId;
         
-        // State to manage the sync completion modal status
         let isSyncDoneModalOpen = false;
 
         // --- Utility Functions ---
@@ -373,14 +361,11 @@
             document.getElementById('custom-modal').classList.add('hidden');
             document.getElementById('custom-modal').classList.remove('flex');
 
-            // --- NEW LOGIC: Delete data on modal close if sync was reported complete ---
             if (isSyncDoneModalOpen) {
-                // This function is only called after a successful 'fire and forget' sync attempt.
                 isSyncDoneModalOpen = false;
                 renderData(); // Refresh the list
                 updateStatusIndicator(); // Update the sync button counter
             }
-            // --------------------------------------------------------------------------
         }
 
         /**
@@ -402,7 +387,6 @@
             gpsError.classList.add('hidden');
             
             if (navigator.geolocation) {
-                // Options configured for better offline performance:
                 const options = { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 };
 
                 navigator.geolocation.getCurrentPosition(
@@ -413,7 +397,6 @@
                         
                         gpsInput.value = `Lat: ${lat}, Lon: ${lon} (±${accuracy}m)`;
                         
-                        // Reset button state
                         getGpsBtn.disabled = false;
                         gpsBtnText.textContent = 'Get Current GPS Location';
                         gpsLoader.classList.add('hidden');
@@ -423,7 +406,6 @@
                         console.error("GPS Error:", error);
                         
                         let errorMessage = 'Could not retrieve GPS location.';
-                        // Geolocation errors: 1: Permission denied, 2: Position unavailable, 3: Timeout
                         if (error.code === 1) {
                             errorMessage = 'Permission denied. Please allow location access for this application.';
                         } else if (error.code === 2) {
@@ -436,7 +418,6 @@
                         gpsError.textContent = `Error: ${errorMessage}`;
                         gpsError.classList.remove('hidden');
                         
-                        // Reset button state
                         getGpsBtn.disabled = false;
                         gpsBtnText.textContent = 'Get Current GPS Location';
                         gpsLoader.classList.add('hidden');
@@ -449,7 +430,6 @@
                 gpsError.textContent = 'Geolocation is not supported by this browser.';
                 gpsError.classList.remove('hidden');
                 
-                // Reset button state
                 getGpsBtn.disabled = false;
                 gpsBtnText.textContent = 'Get Current GPS Location';
                 gpsLoader.classList.add('hidden');
@@ -471,7 +451,6 @@
                 syncButton.textContent = `Syncing ${pendingCount} Records...`;
                 syncButton.disabled = true;
                 downloadButton.disabled = true; 
-                // Remove all other classes and add syncing styles
                 syncButton.classList.remove('sync-btn-offline', 'bg-blue-600', 'hover:bg-blue-700', 'bg-gray-400', 'cursor-not-allowed');
                 syncButton.classList.add('bg-yellow-500', 'opacity-80', 'cursor-wait');
                 return;
@@ -522,15 +501,11 @@
             }
         }
 
-        // --- Local Storage Functions (Replacing Firestore) ---
+        // --- Local Storage Functions ---
 
-        /**
-         * Retrieves all records from local storage.
-         */
         function getLocalRecords() {
             try {
                 const data = localStorage.getItem(STORAGE_KEY);
-                // NOTE: Local records now only contain records *NOT YET SYNCED*
                 return data ? JSON.parse(data) : [];
             } catch (e) {
                 console.error("Error reading from local storage:", e);
@@ -538,14 +513,8 @@
             }
         }
 
-        /**
-         * Saves the full list of records back to local storage.
-         * For this new sync logic, STORAGE_KEY and PENDING_SYNC_KEY will hold the same data.
-         * @param {Array<Object>} records - The list of records to save.
-         */
         function saveLocalRecords(records) {
             try {
-                // In this new model, the main record list IS the pending list
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
                 localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(records));
                 renderData();
@@ -556,56 +525,40 @@
             }
         }
         
-        /**
-         * Retrieves pending sync records from local storage (same as getLocalRecords now).
-         */
         function getPendingRecords() {
             return getLocalRecords();
         }
         
-        /**
-         * Saves pending sync records back to local storage (same as saveLocalRecords now).
-         */
         function savePendingRecords(records) {
             saveLocalRecords(records);
         }
 
-        /**
-         * Adds a record to local storage for display and marks it for sync.
-         */
         function addLocalRecord(record) {
             const records = getLocalRecords();
             
-            // Assign a temporary unique ID for local tracking
             const tempId = `local-${Date.now()}`;
             const newRecord = { 
                 ...record, 
                 id: tempId, 
                 deviceId: deviceId, 
-                isSynced: false // Keep for rendering status, but functionally means 'pending'
+                isSynced: false 
             };
 
-            records.unshift(newRecord); // Add to the start for visibility
+            records.unshift(newRecord); 
             
-            saveLocalRecords(records); // Saves to both STORAGE_KEY and PENDING_SYNC_KEY
+            saveLocalRecords(records); 
         }
         
-        /**
-         * Clears all local and pending records after successful sync SEND (fire and forget).
-         */
         function markRecordsAsSynced(syncedRecordIds) {
-            // NEW LOGIC: Delete all pending records immediately after sending
+            // Clears all pending records from local storage
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(PENDING_SYNC_KEY);
         }
 
         // --- UI Rendering ---
 
-        /**
-         * Renders the list of collection records from local storage.
-         */
         function renderData() {
-            const records = getLocalRecords(); // These are now ONLY pending records
+            const records = getLocalRecords(); 
             dataList.innerHTML = '';
             loadingMessage.classList.add('hidden');
 
@@ -614,7 +567,6 @@
                 return;
             }
 
-            // Sort by creation time (newest first, based on local ID generation)
             records.sort((a, b) => {
                 const timeA = a.id.includes('local') ? parseInt(a.id.split('-')[1]) : 0;
                 const timeB = b.id.includes('local') ? parseInt(b.id.split('-')[1]) : 0;
@@ -624,10 +576,8 @@
 
             records.forEach(record => {
                 const docId = record.id;
-                // Since only pending records are shown, the status is always PENDING SYNC
                 const syncBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded-full">PENDING SYNC</span>`;
 
-                // --- Data Display ---
                 const listItem = document.createElement('div');
                 listItem.className = `p-4 border border-gray-200 rounded-lg shadow-sm transition-all bg-red-50 hover:bg-red-100 border-red-300`;
                 
@@ -648,7 +598,6 @@
                         </p>
                     </div>
                     
-                    <!-- Action Buttons (Simplified for local storage) -->
                     <div class="flex space-x-2 mt-3 justify-end">
                         <button data-id="${docId}" data-action="delete" class="text-sm font-medium text-red-600 hover:text-red-800">Delete</button>
                     </div>
@@ -656,7 +605,6 @@
                 dataList.appendChild(listItem);
             });
 
-            // Add event listeners for action buttons
             dataList.querySelectorAll('button[data-action="delete"]').forEach(button => {
                 button.addEventListener('click', (e) => {
                     const docId = e.target.dataset.id;
@@ -672,9 +620,6 @@
             });
         }
 
-        /**
-         * Saves a new record locally and adds it to the sync queue.
-         */
         function saveData(e) {
             e.preventDefault();
             
@@ -689,7 +634,6 @@
                 submittedAt: new Date().toISOString()
             };
 
-            // Enhanced validation for GPS field
             if (!record.gpsLocation || record.gpsLocation.includes('Unavailable') || record.gpsLocation.includes('Fetching') || !record.gpsLocation.startsWith('Lat:')) {
                  showModal("Input Error", "Please successfully fetch the GPS location before saving. Ensure you have a clear sky view for a satellite lock.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
                  return;
@@ -698,28 +642,20 @@
             addLocalRecord(record);
             showModal("Local Save Success", "Record saved successfully to local storage. Click 'Sync' when you have a connection to upload it to Google Sheets.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
             
-            // Clear form on success
             form.reset(); 
             setTodayDate(); 
-            gpsInput.value = 'Lat: -, Lon: -'; // Reset GPS field
+            gpsInput.value = 'Lat: -, Lon: -'; 
         }
 
-        /**
-         * Deletes a record from local storage.
-         */
         function deleteLocalRecord(docId) {
-            // Since all records are pending, we just filter the main list
             let records = getLocalRecords().filter(r => r.id !== docId);
             
-            saveLocalRecords(records); // Updates both storage keys and triggers UI refresh
+            saveLocalRecords(records); 
             showModal("Deleted", "Record removed from local device storage.", [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
         }
         
-        // --- Google Apps Script Sync Logic (Modified for Fire and Forget) ---
+        // --- Google Apps Script Sync Logic (3-second delay implemented) ---
 
-        /**
-         * Synchronizes all pending records to Google Sheets via Apps Script.
-         */
         async function syncToSheets() {
             if (APPS_SCRIPT_URL === "APPS_SCRIPT_URL_PLACEHOLDER") {
                 showModal("Configuration Error", "The Google Apps Script URL has not been configured. Please replace the placeholder in the code.", [{label: 'OK', className: 'bg-red-600 text-white hover:bg-red-700', onClick: closeModal}]);
@@ -739,11 +675,11 @@
             }
             
             // 1. Show syncing modal
-            updateStatusIndicator(true); // Sets spinning icon and status text
+            updateStatusIndicator(true); 
             syncButton.disabled = true;
             saveButton.disabled = true;
 
-            showModal("Syncing Data", `Attempting to upload ${recordCount} record(s) to Google Sheets...`, 
+            showModal("Syncing Data", `Attempting to upload ${recordCount} record(s) to Google Sheets. Please wait 3 seconds for confirmation...`, 
                       [{label: 'Working...', className: 'status-syncing text-yellow-800', autoClose: false}]
             );
 
@@ -762,15 +698,13 @@
 
 
                 // 3. Immediately show Sync Done modal and clear local data AFTER a delay
-                // Wait for 1.5 seconds to simulate data transmission time
+                // Wait for 3 seconds as requested
                 setTimeout(() => {
                     const syncedIds = pendingRecords.map(r => r.id);
-                    markRecordsAsSynced(syncedIds); // Clears local storage
+                    markRecordsAsSynced(syncedIds); 
                     
-                    // Set state for modal close cleanup
                     isSyncDoneModalOpen = true; 
                     
-                    // Close the 'Syncing Data' modal and show success
                     closeModal(); 
                     showModal("Sync Complete!", 
                               `${recordCount} record(s) were successfully sent for logging. Local data has been cleared.`, 
@@ -779,13 +713,11 @@
                               }}]
                     );
                     
-                    // In case the modal is not closed for some reason, ensure status resets
                     updateStatusIndicator(false); 
 
-                }, 1500); // 1.5 second delay
+                }, 3000); // *** 3.0 second delay as requested ***
 
             } catch (error) {
-                // This catch block handles immediate errors (e.g., APPS_SCRIPT_URL not being an accessible URL)
                 console.error("Immediate Sync failed (e.g., DNS/URL error):", error);
                 closeModal();
                 showModal("Sync Failed", 
@@ -799,11 +731,8 @@
             }
         }
         
-        // --- Download Logic (Fixed) ---
+        // --- Download Logic (CSV and PDF) ---
 
-        /**
-         * Prompts the user to select the download format.
-         */
         function downloadDataPrompt() {
             const records = getPendingRecords();
             if (records.length === 0) {
@@ -823,9 +752,9 @@
                         onClick: downloadAsCsv 
                     },
                     { 
-                        label: 'Print/PDF Report', 
+                        label: 'Download PDF Report', 
                         className: 'primary-btn bg-indigo-600 hover:bg-indigo-700', 
-                        onClick: downloadAsPrintableReport 
+                        onClick: downloadAsPDF 
                     }
                 ]
             );
@@ -838,8 +767,6 @@
             const records = getPendingRecords();
             if (records.length === 0) return;
 
-            // 1. Define Headers
-            // Use user-friendly column names
             const fieldMap = {
                 id: "Record ID",
                 deviceId: "Device ID",
@@ -856,12 +783,10 @@
             const keys = Object.keys(fieldMap);
             const headers = keys.map(key => fieldMap[key]);
             
-            // 2. Create CSV Content
             let csv = headers.join(',') + '\n';
             records.forEach(row => {
                 const values = keys.map(key => {
                     let value = row[key] === null || row[key] === undefined ? '' : row[key];
-                    // Escape commas and wrap in quotes if necessary
                     value = String(value).replace(/"/g, '""'); 
                     if (value.includes(',') || value.includes('\n')) {
                         value = `"${value}"`;
@@ -871,67 +796,102 @@
                 csv += values.join(',') + '\n';
             });
 
-            // 3. Trigger Download
             const dateStr = new Date().toISOString().split('T')[0];
             downloadFile(`seed_collection_pending_data_${dateStr}.csv`, csv, 'text/csv');
         }
 
         /**
-         * Generates a printable report that can be saved as a PDF using the browser's print dialog.
-         * FIX: Ensures the hidden container is made visible before print is triggered.
+         * Generates and downloads a true PDF file using html2canvas and jsPDF.
          */
-        function downloadAsPrintableReport() {
+        function downloadAsPDF() {
             const records = getPendingRecords();
             if (records.length === 0) return;
+            
+            showModal("Generating PDF", "Please wait while the PDF report is being created...", 
+                     [{label: 'Processing...', className: 'status-syncing text-yellow-800', autoClose: false}]);
 
             const dateStr = new Date().toLocaleString();
-            let htmlContent = `
-                <div class="print-header">
-                    <h1>Seed Collection Pending Data Report</h1>
-                    <p>Generated: ${dateStr}</p>
-                    <p>Device ID: ${deviceId}</p>
-                    <p>Total Records: ${records.length}</p>
+            
+            // 1. Generate HTML content for the PDF in the hidden wrapper
+            let htmlContent = `<div style="padding: 20px; font-family: sans-serif; color: #1f2937;">`;
+            htmlContent += `
+                <div class="pdf-header">
+                    <h1 style="font-size: 24px; font-weight: bold; margin: 0;">Seed Collection Pending Data Report</h1>
+                    <p style="font-size: 12px; color: #6b7280; margin-top: 5px;">Generated: ${dateStr}</p>
+                    <p style="font-size: 12px; color: #6b7280;">Device ID: ${deviceId}</p>
+                    <p style="font-size: 14px; font-weight: 600; margin-top: 10px;">Total Records: ${records.length}</p>
                 </div>
             `;
             
             records.forEach((record, index) => {
+                const submittedDate = new Date(record.submittedAt).toLocaleString();
                 htmlContent += `
-                    <div class="print-record">
-                        <h3>Record #${index + 1}</h3>
-                        <p><strong>Record ID:</strong> ${record.id}</p>
-                        <p><strong>Date Collected:</strong> ${record.dateCollected}</p>
-                        <p><strong>Range:</strong> ${record.range}</p>
-                        <p><strong>Village:</strong> ${record.village}</p>
-                        <p><strong>Species:</strong> ${record.species}</p>
-                        <p><strong>Seed Amount (kg):</strong> ${record.seedAmountKg}</p>
-                        <p><strong>CPT No.:</strong> ${record.cptNo}</p>
-                        <p><strong>GPS Location:</strong> ${record.gpsLocation}</p>
-                        <p><strong>Submitted At:</strong> ${new Date(record.submittedAt).toLocaleString()}</p>
+                    <div class="pdf-record" style="border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 8px;">
+                        <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">Record #${index + 1}</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+                            <p><strong>Record ID:</strong> ${record.id}</p>
+                            <p><strong>Date Collected:</strong> ${record.dateCollected}</p>
+                            <p><strong>Range:</strong> ${record.range}</p>
+                            <p><strong>Village:</strong> ${record.village}</p>
+                            <p><strong>Species:</strong> ${record.species}</p>
+                            <p><strong>Seed Amount (kg):</strong> ${record.seedAmountKg}</p>
+                            <p><strong>CPT No.:</strong> ${record.cptNo}</p>
+                            <p style="grid-column: span 2; word-wrap: break-word;"><strong>GPS Location:</strong> ${record.gpsLocation}</p>
+                            <p style="grid-column: span 2;"><strong>Submitted At:</strong> ${submittedDate}</p>
+                        </div>
                     </div>
                 `;
             });
 
-            // 1. Inject the content
-            printContainer.innerHTML = htmlContent;
-            
-            // 2. Make the container visible (by removing 'hidden') so the print media CSS can take over
-            printContainer.classList.remove('hidden'); 
-            
-            // 3. Trigger the browser's print function
-            window.print();
-            
-            // 4. Clean up and re-hide
-            setTimeout(() => {
-                printContainer.innerHTML = '';
-                printContainer.classList.add('hidden'); // Re-hide the container
-            }, 500);
+            htmlContent += `</div>`;
+            pdfContentWrapper.innerHTML = htmlContent;
+
+            // 2. Use html2canvas to render the hidden content as a canvas/image
+            html2canvas(pdfContentWrapper, {
+                scale: 2, // Increase scale for better resolution
+                useCORS: true,
+                logging: false,
+                width: 1000, // Match wrapper width
+            }).then(canvas => {
+                // 3. Initialize jsPDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4'); // Portrait, millimeters, A4 size
+                
+                const imgData = canvas.toDataURL('image/png');
+                const imgWidth = 210; // A4 width in mm
+                const pageHeight = 295; // A4 height in mm
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                let heightLeft = imgHeight;
+                let position = 0;
+
+                // 4. Add the image, creating new pages if content exceeds one page
+                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+
+                while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                    heightLeft -= pageHeight;
+                }
+                
+                // 5. Trigger download
+                const fileName = `seed_collection_report_${new Date().toISOString().split('T')[0]}.pdf`;
+                pdf.save(fileName);
+                
+                // 6. Cleanup and notify user
+                pdfContentWrapper.innerHTML = '';
+                closeModal(); // Close the processing modal
+                showModal("PDF Download Complete", `The file '${fileName}' has been generated and downloaded.`, [{label: 'OK', className: 'primary-btn', onClick: closeModal}]);
+            }).catch(error => {
+                console.error("PDF Generation Error:", error);
+                closeModal();
+                showModal("PDF Generation Failed", `An error occurred while creating the PDF. Check console for details.`, [{label: 'Close', className: 'bg-red-600 hover:bg-red-700', onClick: closeModal}]);
+            });
         }
         
         /**
          * Generic file download utility.
-         * @param {string} filename - The name of the file to save.
-         * @param {string} text - The file content.
-         * @param {string} mimeType - The MIME type (e.g., 'text/csv').
          */
         function downloadFile(filename, text, mimeType) {
             const element = document.createElement('a');
@@ -951,7 +911,6 @@
         function initializeApp() {
             setTodayDate();
             renderData();
-            // Initial call sets correct status (online/offline) and button state
             updateStatusIndicator(); 
             
             // Event Listeners
