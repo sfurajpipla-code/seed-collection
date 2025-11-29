@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="utf-8"/>
+    <link rel="manifest" href="/seed-collection/manifest.json">
+    <meta name="theme-color" content="#4CAF50">
+    
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Seed Collection Field Data (Google Sheets Sync)</title>
     <!-- Load Tailwind CSS -->
@@ -234,7 +237,7 @@
     <script>
         // --- Configuration ---
         // !!! IMPORTANT: REPLACE THIS PLACEHOLDER WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL !!!
-        const APPS_SCRIPT_URL = "APPS_SCRIPT_URL_PLACEHOLDER"; 
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXItUzNFSlFnMqB8bE06_0XhyKOR3Aa6EeECoyoHN_UVd1xDL-oTYKd42TPaxbTqoIng/exec"; 
         const STORAGE_KEY = 'seedCollectionData_v2';
         const PENDING_SYNC_KEY = 'pendingSyncData_v2';
         const DEVICE_ID_KEY = 'deviceId';
@@ -711,6 +714,20 @@
         // Start the application setup
         initializeApp();
 
+    </script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        // Register the Service Worker with the specific repository scope
+        const scope = '/seed-collection/'; 
+
+        navigator.serviceWorker.register(`${scope}sw.js`, { scope: scope })
+          .then(registration => {
+            console.log('Service Worker registered with scope:', registration.scope);
+          })
+          .catch(error => {
+            console.error('Service Worker registration failed:', error);
+          });
+      }
     </script>
 </body>
 </html>
