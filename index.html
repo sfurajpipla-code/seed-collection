@@ -683,7 +683,7 @@
             } catch (error) {
                 console.error("Sync failed:", error);
                 closeModal();
-                showModal("Sync Done", `saved to  Google Sheets endpoint.  [{label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]);
+                showModal("Sync Done", `saved to  Google Sheets endpoint`  [{label: 'Close', className: 'bg-gray-200 text-gray-700 hover:bg-gray-300', onClick: closeModal}]);
             } finally {
                 updateStatusIndicator(false); // Reset status
                 syncButton.disabled = false;
